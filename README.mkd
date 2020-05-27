@@ -36,6 +36,7 @@ Options:
   -o, --output <dir>        Directory to save responses in (will be created)
   -s, --save-status <code>  Save responses with given status code (can be specified multiple times)
   -S, --save                Save all responses
+  -x, --proxy <proxyURL>    Use the provided HTTP proxy
 ```
 
 ## Tuning

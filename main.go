@@ -34,6 +34,7 @@ func init() {
 			"  -o, --output <dir>        Directory to save responses in (will be created)",
 			"  -s, --save-status <code>  Save responses with given status code (can be specified multiple times)",
 			"  -S, --save                Save all responses",
+			"  -x, --proxy <proxyURL>    Use the provided HTTP proxy",
 			"",
 		}
 
@@ -76,10 +77,14 @@ func main() {
 	flag.Var(&saveStatus, "save-status", "")
 	flag.Var(&saveStatus, "s", "")
 
+	var proxy string
+	flag.StringVar(&proxy, "proxy", "", "")
+	flag.StringVar(&proxy, "x", "", "")
+
 	flag.Parse()
 
 	delay := time.Duration(delayMs * 1000000)
-	client := newClient(keepAlives)
+	client := newClient(keepAlives, proxy)
 	prefix := outputDir
 
 	var wg sync.WaitGroup
@@ -213,7 +218,7 @@ func main() {
 
 }
 
-func newClient(keepAlives bool) *http.Client {
+func newClient(keepAlives bool, proxy string) *http.Client {
 
 	tr := &http.Transport{
 		MaxIdleConns:      30,
@@ -224,6 +229,12 @@ func newClient(keepAlives bool) *http.Client {
 			Timeout:   time.Second * 10,
 			KeepAlive: time.Second,
 		}).DialContext,
+	}
+
+	if proxy != "" {
+		if p, err := url.Parse(proxy); err == nil {
+			tr.Proxy = http.ProxyURL(p)
+		}
 	}
 
 	re := func(req *http.Request, via []*http.Request) error {
