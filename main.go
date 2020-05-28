@@ -87,9 +87,9 @@ func main() {
 	sc := bufio.NewScanner(os.Stdin)
 
 	for sc.Scan() {
+
 		rawURL := sc.Text()
 		wg.Add(1)
-
 		time.Sleep(delay)
 
 		go func() {
@@ -105,6 +105,12 @@ func main() {
 					method = "POST"
 				}
 			}
+
+			_, err := url.ParseRequestURI(rawURL)
+			if err != nil {
+				return
+			}
+
 			req, err := http.NewRequest(method, rawURL, b)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "failed to create request: %s\n", err)
