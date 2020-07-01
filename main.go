@@ -152,10 +152,13 @@ func main() {
 			normalisedPath := normalisePath(req.URL)
 			hash := sha1.Sum([]byte(method + rawURL + body + headers.String()))
 			p := path.Join(prefix, req.URL.Hostname(), normalisedPath, fmt.Sprintf("%x.body", hash))
-			err = os.MkdirAll(path.Dir(p), 0750)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "failed to create dir: %s\n", err)
-				return
+			if _, err := os.Stat(path.Dir(p)); os.IsNotExist(err) {
+
+				err = os.MkdirAll(path.Dir(p), 0750)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "failed to create dir: %s\n", err)
+					return
+				}
 			}
 
 			// create the body file
