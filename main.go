@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha1"
 	"crypto/tls"
 	"flag"
@@ -29,8 +30,11 @@ func init() {
 			"  -b, --body <data>         Request body",
 			"  -d, --delay <delay>       Delay between issuing requests (ms)",
 			"  -H, --header <header>     Add a header to the request (can be specified multiple times)",
+			"      --ignore-html         Don't save HTML files; useful when looking non-HTML files only",
+			"      --ignore-empty        Don't save empty files",
 			"  -k, --keep-alive          Use HTTP Keep-Alive",
 			"  -m, --method              HTTP method to use (default: GET, or POST if body is specified)",
+			"  -M, --match <string>      Save responses that include <string> in the body",
 			"  -o, --output <dir>        Directory to save responses in (will be created)",
 			"  -s, --save-status <code>  Save responses with given status code (can be specified multiple times)",
 			"  -S, --save                Save all responses",
@@ -44,9 +48,9 @@ func init() {
 
 func main() {
 
-	var body string
-	flag.StringVar(&body, "body", "", "")
-	flag.StringVar(&body, "b", "", "")
+	var requestBody string
+	flag.StringVar(&requestBody, "body", "", "")
+	flag.StringVar(&requestBody, "b", "", "")
 
 	var keepAlives bool
 	flag.BoolVar(&keepAlives, "keep-alive", false, "")
@@ -65,6 +69,10 @@ func main() {
 	flag.StringVar(&method, "method", "GET", "")
 	flag.StringVar(&method, "m", "GET", "")
 
+	var match string
+	flag.StringVar(&match, "match", "", "")
+	flag.StringVar(&match, "M", "", "")
+
 	var outputDir string
 	flag.StringVar(&outputDir, "output", "out", "")
 	flag.StringVar(&outputDir, "o", "out", "")
@@ -81,11 +89,23 @@ func main() {
 	flag.StringVar(&proxy, "proxy", "", "")
 	flag.StringVar(&proxy, "x", "", "")
 
+	var ignoreHTMLFiles bool
+	flag.BoolVar(&ignoreHTMLFiles, "ignore-html", false, "")
+
+	var ignoreEmpty bool
+	flag.BoolVar(&ignoreEmpty, "ignore-empty", false, "")
+
 	flag.Parse()
 
 	delay := time.Duration(delayMs * 1000000)
 	client := newClient(keepAlives, proxy)
 	prefix := outputDir
+
+	// regex for determining if something is probably HTML. You might
+	// think that checking the content-type response header would be a better
+	// idea, and you might be right - but if there's one thing I've learnt
+	// about webservers it's that they are dirty, rotten, filthy liars.
+	isHTML := regexp.MustCompile(`(?i)<html`)
 
 	var wg sync.WaitGroup
 
@@ -102,8 +122,8 @@ func main() {
 
 			// create the request
 			var b io.Reader
-			if body != "" {
-				b = strings.NewReader(body)
+			if requestBody != "" {
+				b = strings.NewReader(requestBody)
 
 				// Can't send a body with a GET request
 				if method == "GET" {
@@ -140,17 +160,46 @@ func main() {
 			}
 			defer resp.Body.Close()
 
+			// we want to read the body into a string or something like that so we can provide options to
+			// not save content based on a pattern or something like that
+			responseBody, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "failed to read body: %s\n", err)
+				return
+			}
+
 			shouldSave := saveResponses || len(saveStatus) > 0 && saveStatus.Includes(resp.StatusCode)
 
+			// If we've been asked to ignore HTML files then we should really do that.
+			// But why would you want to ignore HTML files? Sometimes you're looking at
+			// a ton of hosts for config files and that sort of thing, and they lie to you
+			// by sending a 200 response code instead of a 404. Those pages are *usually*
+			// HTML so providing a way to ignore them cuts down on clutter a little bit,
+			// even if it is a niche use-case.
+			if ignoreHTMLFiles {
+				shouldSave = shouldSave && !isHTML.Match(responseBody)
+			}
+
+			// sometimes we don't about the response at all if it's empty
+			if ignoreEmpty {
+				shouldSave = shouldSave && len(bytes.TrimSpace(responseBody)) != 0
+			}
+
+			// if a -M/--match option has been used, we always want to save if it matches
+			if match != "" {
+				if bytes.Contains(responseBody, []byte(match)) {
+					shouldSave = true
+				}
+			}
+
 			if !shouldSave {
-				_, _ = io.Copy(ioutil.Discard, resp.Body)
 				fmt.Printf("%s %d\n", rawURL, resp.StatusCode)
 				return
 			}
 
 			// output files are stored in prefix/domain/normalisedpath/hash.(body|headers)
 			normalisedPath := normalisePath(req.URL)
-			hash := sha1.Sum([]byte(method + rawURL + body + headers.String()))
+			hash := sha1.Sum([]byte(method + rawURL + requestBody + headers.String()))
 			p := path.Join(prefix, req.URL.Hostname(), normalisedPath, fmt.Sprintf("%x.body", hash))
 			err = os.MkdirAll(path.Dir(p), 0750)
 			if err != nil {
@@ -158,15 +207,8 @@ func main() {
 				return
 			}
 
-			// create the body file
-			f, err := os.Create(p)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "failed to create file: %s\n", err)
-				return
-			}
-			defer f.Close()
-
-			_, err = io.Copy(f, resp.Body)
+			// write the response body to a file
+			err = ioutil.WriteFile(p, responseBody, 0644)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "failed to write file contents: %s\n", err)
 				return
@@ -193,8 +235,8 @@ func main() {
 			buf.WriteRune('\n')
 
 			// add the request body
-			if body != "" {
-				buf.WriteString(body)
+			if requestBody != "" {
+				buf.WriteString(requestBody)
 				buf.WriteString("\n\n")
 			}
 
