@@ -109,6 +109,11 @@ func main() {
 
 	var wg sync.WaitGroup
 
+	f, _ := os.Stdin.Stat()
+	if f.Mode()&os.ModeCharDevice != 0 {
+		flag.Usage()
+		os.Exit(0)
+	}
 	sc := bufio.NewScanner(os.Stdin)
 
 	for sc.Scan() {
