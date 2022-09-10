@@ -11,7 +11,7 @@ result in timeouts doesn't slow the overall progress very much.
 ## Install
 
 ```
-▶ go get -u github.com/tomnomnom/fff
+▶ go install github.com/tomnomnom/fff@latest
 ```
 
 ## Usage
