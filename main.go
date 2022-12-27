@@ -162,13 +162,25 @@ func main() {
 
 			// we want to read the body into a string or something like that so we can provide options to
 			// not save content based on a pattern or something like that
-			responseBody, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "failed to read body: %s\n", err)
+			var responseBody bytes.Buffer
+			scanner := bufio.NewScanner(resp.Body)
+
+			for scanner.Scan() {
+				line := scanner.Text()
+				_, err := responseBody.WriteString(line)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "failed to write response body: %s\n", err)
+					return
+				}
+			}
+			if err := scanner.Err(); err != nil {
+				fmt.Fprintf(os.Stderr, "failed to read response body: %s\n", err)
 				return
 			}
 
 			shouldSave := saveResponses || len(saveStatus) > 0 && saveStatus.Includes(resp.StatusCode)
+
+			responseBytes := responseBody.Bytes()
 
 			// If we've been asked to ignore HTML files then we should really do that.
 			// But why would you want to ignore HTML files? Sometimes you're looking at
@@ -177,17 +189,17 @@ func main() {
 			// HTML so providing a way to ignore them cuts down on clutter a little bit,
 			// even if it is a niche use-case.
 			if ignoreHTMLFiles {
-				shouldSave = shouldSave && !isHTML.Match(responseBody)
+				shouldSave = shouldSave && !isHTML.Match(responseBytes)
 			}
 
 			// sometimes we don't about the response at all if it's empty
 			if ignoreEmpty {
-				shouldSave = shouldSave && len(bytes.TrimSpace(responseBody)) != 0
+				shouldSave = shouldSave && len(bytes.TrimSpace(responseBytes)) != 0
 			}
 
 			// if a -M/--match option has been used, we always want to save if it matches
 			if match != "" {
-				if bytes.Contains(responseBody, []byte(match)) {
+				if bytes.Contains(responseBytes, []byte(match)) {
 					shouldSave = true
 				}
 			}
@@ -208,7 +220,7 @@ func main() {
 			}
 
 			// write the response body to a file
-			err = ioutil.WriteFile(p, responseBody, 0644)
+			err = ioutil.WriteFile(p, responseBytes, 0644)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "failed to write file contents: %s\n", err)
 				return
